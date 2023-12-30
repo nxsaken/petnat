@@ -1,7 +1,6 @@
 #![doc = include_str!("../README.md")]
 #![deny(missing_docs)]
-#![warn(clippy::all)]
-#![allow(clippy::type_complexity)]
+#![deny(clippy::all)]
 
 pub mod net;
 pub mod plugin;

@@ -1,14 +1,14 @@
 [package]
 name = "petnat"
-version = "0.1.0"
+version = "0.0.1"
 authors = ["Nurzhan Sakén <nurzhan.sakenov@gmail.com>"]
 edition = "2021"
 description = "A Petri net plugin for Bevy Engine."
 readme = "README.md"
 repository = "https://github.com/nxsaken/petnat/"
 license = "MIT OR Apache-2.0"
-keywords = ["bevy", "petri", "state-machine", "gamedev"]
+keywords = ["bevy", "petri", "petri-net", "state-machine", "gamedev"]
 categories = ["simulation", "game-development", "science"]
 
 [dependencies]
-bevy = { version = "0.12", default-features = false }
+# bevy = { version = "0.12", default-features = false }

@@ -1,270 +1,260 @@
 //! Petri net.
 
-use crate::token::Token;
-use bevy::utils::thiserror::Error;
-use bevy::utils::HashMap;
+use std::collections::{HashMap, HashSet};
+use std::fmt::Debug;
+use std::hash::Hash;
+use std::marker::PhantomData;
+
 use place::{Place, PlaceId};
-use trans::{Gate, Trans, TransId};
+use trans::{Arcs, Trans, TransId, TransNode};
+
+use crate::token::Token;
 
 pub mod place;
 pub mod trans;
 
-/// Reference to a Petri net.
-#[derive(Copy, Clone, Ord, PartialOrd, Eq, PartialEq, Hash, Debug)]
-pub struct NetId(usize);
+/// Petri net id.
+///
+/// TODO: derive macro
+pub trait NetId
+where
+    Self: Send + Sync + 'static,
+    Self: Copy + Eq + Hash + Debug,
+{
+}
+
+/// Numbered net label for convenience.
+#[derive(Copy, Clone, Eq, PartialEq, Hash, Debug)]
+pub enum N<const ID: usize> {}
+
+impl<const ID: usize> NetId for N<ID> {}
 
 /// Petri net.
-#[derive(Clone, Eq, PartialEq, Default, Debug)]
-pub struct Net {
-    places: HashMap<PlaceId, Place>,
-    transitions: HashMap<TransId, Trans>,
+/// TODO: remove HashSet and HashMap in favor of an array + a PHF
+///  since the net will probably always be constructed at compile time?
+/// TODO: make this a Bevy resource
+#[derive(Clone, Debug)]
+pub struct PetriNet<Net: NetId> {
+    places: HashSet<PlaceId<Net>>,
+    transitions: HashMap<TransId<Net>, TransNode<Net>>,
+    _id: PhantomData<Net>,
 }
 
-/// Enum representing a Petri net error.
-#[derive(Error, Copy, Clone, PartialEq, Eq, Debug)]
-pub enum NetError {
-    /// Expected place was not found in the net.
-    #[error("Place not found: {0:?}.")]
-    PlaceNotFound(PlaceId),
-    /// Expected transition was not found in the net.
-    #[error("Transition not found: {0:?}.")]
-    TransNotFound(TransId),
-    /// Task was expected to be enabled, but it was not.
-    #[error("Transition not enabled: {0:?}.")]
-    NotEnabled(TransId),
-}
+impl<Net: NetId> PetriNet<Net> {
+    /// Returns an empty net.
+    pub fn empty() -> Self {
+        Self {
+            places: Default::default(),
+            transitions: Default::default(),
+            _id: PhantomData,
+        }
+    }
 
-impl Net {
-    /// Adds a place and returns a reference to it.
-    pub fn add_place(&mut self, place: Place) -> PlaceId {
-        let new_id = PlaceId(self.places.len());
-        self.places.insert(new_id, place);
-        new_id
+    /// Adds a place to the net.
+    pub fn add_place<P: Place<Net>>(mut self) -> Self {
+        self.add_place_by_id(P::ID);
+        self
+    }
+
+    fn add_place_by_id(&mut self, place: PlaceId<Net>) {
+        let new = self.places.insert(place);
+        assert!(new, "Attempted to add place {:?} twice.", place);
     }
 
     /// Adds a transition and returns a reference to it.
-    pub fn add_trans(&mut self, join: Gate, split: Gate) -> TransId {
-        let new_id = TransId(self.transitions.len());
-        self.transitions.insert(new_id, Trans::new(join, split));
-        new_id
+    pub fn add_trans<T: Trans<Net>, Pre: Arcs<Net>, Post: Arcs<Net>>(mut self) -> Self {
+        let preset = Pre::arcs();
+        let postset = Post::arcs();
+        self.add_trans_by_id(T::ID, preset, postset);
+        self
     }
 
-    /// Adds places to the preset of a transition.
-    pub fn add_inflows(
+    fn add_trans_by_id(
         &mut self,
-        trans: TransId,
-        places: &[(PlaceId, usize)],
-    ) -> Result<(), NetError> {
-        self.add_flows(trans, |trans| &mut trans.join, places)
-    }
-
-    /// Adds places to the postset of a transition.
-    pub fn add_outflows(
-        &mut self,
-        trans: TransId,
-        places: &[(PlaceId, usize)],
-    ) -> Result<(), NetError> {
-        self.add_flows(trans, |trans| &mut trans.split, places)
-    }
-
-    fn add_flows(
-        &mut self,
-        trans: TransId,
-        gate: fn(&mut Trans) -> &mut (Gate, HashMap<PlaceId, usize>),
-        places: &[(PlaceId, usize)],
-    ) -> Result<(), NetError> {
-        if let Some(trans) = self.transitions.get_mut(&trans) {
-            if let Some(&missing_place) = places
-                .iter()
-                .find_map(|(place, _)| (!self.places.contains_key(place)).then_some(place))
-            {
-                return Err(NetError::PlaceNotFound(missing_place));
-            }
-            gate(trans).1.extend(places.iter());
-            return Ok(());
-        }
-        Err(NetError::TransNotFound(trans))
+        trans: TransId<Net>,
+        preset: Vec<(PlaceId<Net>, usize)>,
+        postset: Vec<(PlaceId<Net>, usize)>,
+    ) {
+        let dup = self
+            .transitions
+            .insert(trans, TransNode::new(preset, postset));
+        assert!(
+            dup.is_none(),
+            "Attempted to add transition {:?} twice.",
+            trans
+        )
     }
 }
 
-impl Net {
+impl<Net: NetId> PetriNet<Net> {
+    /// Spawns new token.
+    pub fn spawn_token(&self) -> Token<Net> {
+        Token::new()
+    }
+
     /// Tries to return an enabled transition.
-    pub fn get_enabled(&self, trans: TransId, token: &Token) -> Result<&Trans, NetError> {
-        let Some(maybe_enabled) = self.transitions.get(&trans) else {
-            return Err(NetError::TransNotFound(trans));
+    pub(crate) fn get_enabled_by_id(
+        &self,
+        trans: TransId<Net>,
+        token: &Token<Net>,
+    ) -> Option<&TransNode<Net>> {
+        let Some(trans) = self.transitions.get(&trans) else {
+            panic!("Transition {trans:?} not found.");
         };
-        let (join, preset) = &maybe_enabled.join;
-        let f = |(&place, &weight)| token.marking(place) >= weight;
-        let enabled = match join {
-            Gate::And => preset.iter().all(f),
-            Gate::Xor => preset.iter().any(f),
-            Gate::Or => unimplemented!(),
-        };
-        match enabled {
-            true => Ok(maybe_enabled),
-            false => Err(NetError::NotEnabled(trans)),
-        }
+        trans
+            .join
+            .iter()
+            .all(|&(place, weight)| token.marks_by_id(place) >= weight)
+            .then_some(trans)
+    }
+
+    /// Returns whether a transition is enabled.
+    pub fn is_enabled<T: Trans<Net>>(&self, token: &Token<Net>) -> bool {
+        self.get_enabled_by_id(T::ID, token).is_some()
     }
 
     /// Returns an iterator over the enabled transitions for a token. FIXME: extract into struct
-    pub fn iter_enabled<'a>(&'a self, token: &'a Token) -> impl Iterator<Item = TransId> + 'a {
+    pub fn iter_enabled<'a>(
+        &'a self,
+        token: &'a Token<Net>,
+    ) -> impl Iterator<Item = TransId<Net>> + 'a {
         self.transitions
             .keys()
             .copied()
-            .filter(|trans| self.get_enabled(*trans, token).is_ok())
+            .filter(|trans| self.get_enabled_by_id(*trans, token).is_some())
     }
 
     /// Fires transition.
-    ///
-    /// Returns `(consumed, produced)` number of tokens
-    pub fn fire(&self, trans: TransId, token: &mut Token) -> Result<(usize, usize), NetError> {
-        let trans = self.get_enabled(trans, token)?;
-        let (join, preset) = &trans.join;
-        let consumed = match join {
-            Gate::And => preset
-                .iter()
-                .inspect(|(&place, &weight)| {
-                    token
-                        .unmark(place, weight)
-                        .expect("place has enough tokens");
-                })
-                .map(|(_, &weight)| weight)
-                .sum(),
-            Gate::Xor => preset
-                .iter()
-                .filter(|(&place, &weight)| token.unmark(place, weight).is_ok())
-                .map(|(_, &weight)| weight)
-                .next()
-                .expect("one of the places has enough tokens"),
-            Gate::Or => unimplemented!(),
-        };
-        let (split, postset) = &trans.split;
-        let produced = match split {
-            Gate::And => postset
-                .iter()
-                .inspect(|(&place, &weight)| {
-                    token.mark(place, weight);
-                })
-                .map(|(_, &weight)| weight)
-                .sum(),
-            Gate::Xor => unimplemented!(),
-            Gate::Or => unimplemented!(),
-        };
-        Ok((consumed, produced))
+    pub fn fire_by_id(&self, trans: TransId<Net>, token: &mut Token<Net>) -> Option<()> {
+        let TransNode { join, split } = self.get_enabled_by_id(trans, token)?;
+        join.iter()
+            .map(|&(p, w)| token.unmark_by_id(p, w))
+            .for_each(|um| um.expect("place has enough tokens"));
+        split.iter().for_each(|&(p, w)| token.mark_by_id(p, w));
+        Some(())
+    }
+
+    /// Fires transition.
+    pub fn fire<T: Trans<Net>>(&self, token: &mut Token<Net>) -> Option<()> {
+        self.fire_by_id(T::ID, token)
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use super::place::{Place, PlaceId};
-    use super::trans::{Gate, TransId};
-    use super::Net;
-    use crate::token::Token;
+    use super::place::{Place, PlaceId, P};
+    use super::trans::{Trans, TransId, T, W1, W2, W3};
+    use super::{NetId, PetriNet, N};
 
-    // Simplest functional net:
-    // (p0) -> |t0| -> (p1)
-    fn minimal_net() -> (Net, [PlaceId; 2], [TransId; 1]) {
-        let mut net = Net::default();
-        let p = [0, 1].map(|_| net.add_place(Place::new()));
-        let t = [0].map(|_| net.add_trans(Gate::And, Gate::And));
-        net.add_inflows(t[0], &[(p[0], 1)]).unwrap();
-        net.add_outflows(t[0], &[(p[1], 1)]).unwrap();
-        (net, p, t)
+    enum P0 {}
+    enum P1 {}
+    enum T0 {}
+
+    impl<Net: NetId> Place<Net> for P0 {
+        const ID: PlaceId<Net> = PlaceId::new(0);
+    }
+    impl<Net: NetId> Place<Net> for P1 {
+        const ID: PlaceId<Net> = PlaceId::new(1);
+    }
+    impl<Net: NetId> Trans<Net> for T0 {
+        const ID: TransId<Net> = TransId::new(2);
     }
 
-    // Weighted AND-gate.
-    // (p0) -\     &&     /-> (p2)
+    // (p0) -> |t0| -> (p1)
+    fn minimal<Id: NetId>() -> PetriNet<Id> {
+        PetriNet::empty()
+            .add_place::<P0>()
+            .add_place::<P1>()
+            .add_trans::<T0, (P0, W1), (P1, W1)>()
+    }
+
+    // (p0) -\            /-> (p2)
     //        >-> |t0| --<--> (p3)
     // (p1) -/            \-> (p4)
-    fn star_net() -> (Net, [PlaceId; 5], [TransId; 1]) {
-        let mut net = Net::default();
-        let p = [0, 1, 2, 3, 4].map(|_| net.add_place(Place::new()));
-        let t = [0].map(|_| net.add_trans(Gate::And, Gate::And));
-        net.add_inflows(t[0], &[(p[0], 1), (p[1], 2)]).unwrap();
-        net.add_outflows(t[0], &[(p[2], 1), (p[3], 2), (p[4], 3)])
-            .unwrap();
-        (net, p, t)
+    fn weighted_star<Id: NetId>() -> PetriNet<Id> {
+        PetriNet::empty()
+            .add_place::<P<0>>()
+            .add_place::<P<1>>()
+            .add_place::<P<2>>()
+            .add_place::<P<3>>()
+            .add_place::<P<4>>()
+            .add_trans::<T<0>, ((P<0>, W1), (P<1>, W2)), ((P<2>, W1), (P<3>, W2), (P<4>, W3))>()
     }
 
-    // Two places sending a token back and forth through two transitions in the opposite directions:
+    // Two places sending a token back and forth through two transitions in opposite directions:
     //  /--> |t0| -> (p1)
     // (p0) <- |t1| <--/
-    fn loop_net() -> (Net, [PlaceId; 2], [TransId; 2]) {
-        let mut net = Net::default();
-        let p = [0, 1].map(|_| net.add_place(Place::new()));
-        let t = [0, 1].map(|_| net.add_trans(Gate::And, Gate::And));
-        net.add_inflows(t[0], &[(p[0], 1)]).unwrap();
-        net.add_outflows(t[0], &[(p[1], 1)]).unwrap();
-        net.add_inflows(t[1], &[(p[1], 1)]).unwrap();
-        net.add_outflows(t[1], &[(p[0], 1)]).unwrap();
-        (net, p, t)
+    fn ring<Id: NetId>() -> PetriNet<Id> {
+        PetriNet::empty()
+            .add_place::<P<0>>()
+            .add_place::<P<1>>()
+            .add_trans::<T<0>, (P<0>, W1), (P<1>, W1)>()
+            .add_trans::<T<1>, (P<1>, W1), (P<0>, W1)>()
     }
 
-    // Two AND-gates sharing a preset place. When one of them fires, the other ceases to be enabled.
-    //           &&
+    // Two transitions sharing a preset place. When one of them fires, the other ceases to be enabled.
     // (p0) --> |t0| -\
-    // (p1) -<   &&    >-> (p3)
+    // (p1) -<         >-> (p3)
     // (p2) --> |t1| -/
-    fn implicit_choice() -> (Net, [PlaceId; 4], [TransId; 2]) {
-        let mut net = Net::default();
-        let p = [0, 1, 2, 3].map(|_| net.add_place(Place::new()));
-        let t = [0, 1].map(|_| net.add_trans(Gate::And, Gate::And));
-        net.add_inflows(t[0], &[(p[0], 1), (p[1], 1)]).unwrap();
-        net.add_inflows(t[1], &[(p[1], 1), (p[2], 1)]).unwrap();
-        net.add_outflows(t[0], &[(p[3], 1)]).unwrap();
-        net.add_outflows(t[1], &[(p[3], 1)]).unwrap();
-        (net, p, t)
+    fn choice<Id: NetId>() -> PetriNet<Id> {
+        PetriNet::empty()
+            .add_place::<P<0>>()
+            .add_place::<P<1>>()
+            .add_place::<P<2>>()
+            .add_place::<P<3>>()
+            .add_trans::<T<0>, ((P<0>, W1), (P<1>, W1)), (P<3>, W1)>()
+            .add_trans::<T<1>, ((P<1>, W1), (P<2>, W1)), (P<3>, W1)>()
     }
 
     #[test]
-    fn test_simple_trans() {
-        let (net, p, t) = minimal_net();
-        let mut token = Token::default();
-        assert_eq!(token.mark(p[0], 1), 1);
-        assert_eq!(net.fire(t[0], &mut token).ok(), Some((1, 1)));
-        assert_eq!(token.marking(p[0]), 0);
-        assert_eq!(token.marking(p[1]), 1);
+    fn test_minimal() {
+        let net = minimal::<N<0>>();
+        let mut token = net.spawn_token();
+        token.mark::<P0>(1);
+        assert!(net.fire::<T0>(&mut token).is_some());
+        assert_eq!(token.marks::<P0>(), 0);
+        assert_eq!(token.marks::<P1>(), 1);
     }
 
     #[test]
-    fn test_and_join_split() {
-        let (net, p, t) = star_net();
-        let mut token = Token::default();
-        assert_eq!(token.mark(p[0], 1), 1);
-        assert_eq!(token.mark(p[1], 2), 2);
-        assert_eq!(net.fire(t[0], &mut token).ok(), Some((3, 6)));
-        assert_eq!(token.marking(p[0]), 0);
-        assert_eq!(token.marking(p[1]), 0);
-        assert_eq!(token.marking(p[2]), 1);
-        assert_eq!(token.marking(p[3]), 2);
-        assert_eq!(token.marking(p[4]), 3);
+    fn test_weighted_star() {
+        let net = weighted_star::<N<0>>();
+        let mut token = net.spawn_token();
+        token.mark::<P<0>>(1);
+        token.mark::<P<1>>(2);
+        assert!(net.fire::<T<0>>(&mut token).is_some());
+        assert_eq!(token.marks::<P<0>>(), 0);
+        assert_eq!(token.marks::<P<1>>(), 0);
+        assert_eq!(token.marks::<P<2>>(), 1);
+        assert_eq!(token.marks::<P<3>>(), 2);
+        assert_eq!(token.marks::<P<4>>(), 3);
     }
 
     #[test]
-    fn test_loop() {
-        let (net, p, t) = loop_net();
-        let mut token = Token::default();
-        assert_eq!(token.mark(p[0], 1), 1);
-        assert_eq!(token.marking(p[0]), 1);
-        assert_eq!(token.marking(p[1]), 0);
-        assert_eq!(net.fire(t[0], &mut token).ok(), Some((1, 1)));
-        assert_eq!(token.marking(p[0]), 0);
-        assert_eq!(token.marking(p[1]), 1);
-        assert_eq!(net.fire(t[1], &mut token).ok(), Some((1, 1)));
-        assert_eq!(token.marking(p[0]), 1);
-        assert_eq!(token.marking(p[1]), 0);
+    fn test_ring() {
+        let net = ring::<N<0>>();
+        let mut token = net.spawn_token();
+        token.mark::<P<0>>(1);
+        assert_eq!(token.marks::<P<0>>(), 1);
+        assert_eq!(token.marks::<P<1>>(), 0);
+        assert!(net.fire::<T<0>>(&mut token).is_some());
+        assert_eq!(token.marks::<P<0>>(), 0);
+        assert_eq!(token.marks::<P<1>>(), 1);
+        assert!(net.fire::<T<1>>(&mut token).is_some());
+        assert_eq!(token.marks::<P<0>>(), 1);
+        assert_eq!(token.marks::<P<1>>(), 0);
     }
 
     #[test]
-    fn test_implicit_choice() {
-        let (net, p, t) = implicit_choice();
-        let mut token = Token::default();
-        assert_eq!(token.mark(p[0], 1), 1);
-        assert_eq!(token.mark(p[1], 1), 1);
-        assert_eq!(token.mark(p[2], 1), 1);
-        assert!(net.get_enabled(t[0], &token).is_ok());
-        assert!(net.get_enabled(t[1], &token).is_ok());
-        assert_eq!(net.fire(t[0], &mut token).ok(), Some((2, 1)));
-        assert!(net.get_enabled(t[1], &token).is_err());
+    fn test_choice() {
+        let net = choice::<N<0>>();
+        let mut token = net.spawn_token();
+        token.mark::<P<0>>(1);
+        token.mark::<P<1>>(1);
+        token.mark::<P<2>>(1);
+        assert!(net.is_enabled::<T<0>>(&token));
+        assert!(net.is_enabled::<T<1>>(&token));
+        assert!(net.fire::<T<0>>(&mut token).is_some());
+        assert!(!net.is_enabled::<T<1>>(&token));
     }
 }
