@@ -1,3 +1,5 @@
+[![Rust](https://github.com/nxsaken/petnat/actions/workflows/rust.yml/badge.svg)](https://github.com/nxsaken/petnat/actions/workflows/rust.yml)
+
 A Petri net plugin for [Bevy Engine](https://github.com/bevyengine/bevy). 🍾
 
 ## About
