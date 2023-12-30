@@ -1,4 +1,5 @@
-#![doc = include_str!("../README.md")]
+//! A Petri net plugin for [Bevy Engine](https://github.com/bevyengine/bevy).
+//#![doc = include_str!("../README.md")]
 #![deny(missing_docs)]
 #![deny(clippy::all)]
 
