@@ -1,6 +1,6 @@
 [package]
 name = "petnat"
-version = "0.0.1"
+version = "0.0.2"
 authors = ["Nurzhan Sakén <nurzhan.sakenov@gmail.com>"]
 edition = "2021"
 description = "A Petri net plugin for Bevy Engine."
@@ -11,4 +11,11 @@ keywords = ["bevy", "petri", "petri-net", "state-machine", "gamedev"]
 categories = ["simulation", "game-development", "science"]
 
 [dependencies]
-# bevy = { version = "0.12", default-features = false }
+bevy_ecs = { version = "0.12", default-features = false }
+bevy_app = { version = "0.12" }
+bevy_utils = { version = "0.12" }
+
+[dev-dependencies]
+bevy = { version = "0.12" }
+
+[features]

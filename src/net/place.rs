@@ -1,17 +1,44 @@
 //! Petri net places.
 
-use crate::net::NetId;
+use std::any::TypeId;
+use std::fmt::{Debug, Formatter};
+use std::hash::{Hash, Hasher};
 use std::marker::PhantomData;
 
-/// Reference to a place.
-/// TODO: replace usize with T: Hash? – or with TypeId for better type safety
-#[derive(Copy, Clone, Ord, PartialOrd, Eq, PartialEq, Hash, Debug)]
-pub struct PlaceId<Net: NetId>(pub(crate) usize, PhantomData<Net>);
+use crate::net::trans::TransId;
+use crate::net::NetId;
 
-impl<Net: NetId> PlaceId<Net> {
-    /// Returns a new place identifier.
-    pub const fn new(id: usize) -> Self {
-        Self(id, PhantomData)
+/// Reference to a place in a net.
+pub struct PlaceId<Net: NetId>(TypeId, PhantomData<Net>);
+
+impl<Net: NetId> Clone for PlaceId<Net> {
+    fn clone(&self) -> Self {
+        *self
+    }
+}
+
+impl<Net: NetId> Copy for PlaceId<Net> {}
+
+impl<Net: NetId> PartialEq<Self> for PlaceId<Net> {
+    fn eq(&self, other: &Self) -> bool {
+        TypeId::eq(&self.0, &other.0)
+    }
+}
+
+impl<Net: NetId> Eq for PlaceId<Net> {}
+
+impl<Net: NetId> Hash for PlaceId<Net> {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.0.hash(state);
+    }
+}
+
+impl<Net: NetId> Debug for PlaceId<Net> {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        f.debug_tuple("PlaceId")
+            .field(&self.0)
+            .field(&format_args!("_"))
+            .finish()
     }
 }
 
@@ -19,21 +46,25 @@ impl<Net: NetId> PlaceId<Net> {
 ///
 /// May represent different concepts depending on the context,
 /// commonly used to represent some state or condition.
-///
-/// TODO: derive macro
 pub trait Place<Net: NetId>
 where
     Self: Send + Sync + 'static,
 {
     /// Identifier.
-    const ID: PlaceId<Net>;
+    fn erased() -> PlaceId<Net> {
+        PlaceId(TypeId::of::<Self>(), PhantomData)
+    }
 }
 
-/// Universal numbered place for convenience.
-pub enum P<const ID: usize> {}
+/// Numbered [`Place`] compatible with any [`PetriNet`] for convenience.
+pub enum Pn<const N: usize> {}
 
-impl<Net: NetId, const ID: usize> Place<Net> for P<ID> {
-    const ID: PlaceId<Net> = PlaceId::new(ID);
+impl<Net: NetId, const N: usize> Place<Net> for Pn<N> {}
+
+#[derive(Clone, Debug)]
+pub(crate) struct ErasedPlace<Net: NetId> {
+    pub producers: Vec<(TransId<Net>, usize)>,
+    pub consumers: Vec<(TransId<Net>, usize)>,
 }
 
 #[cfg(test)]

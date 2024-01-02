@@ -1,19 +1,16 @@
-//! A Petri net plugin for [Bevy Engine](https://github.com/bevyengine/bevy).
-//#![doc = include_str!("../README.md")]
+#![doc = include_str!("../README.md")]
 #![deny(missing_docs)]
 #![deny(clippy::all)]
 
-pub mod net;
-pub mod plugin;
-pub mod token;
+pub use crate::net::place::{Place, PlaceId, Pn};
+pub use crate::net::trans::{Arcs, Tn, Trans, TransId, W};
+pub use crate::net::{NetId, Nn, PetriNet, PetriNetBuilder};
+pub use crate::plugin::PetriNetPlugin;
+pub use crate::token::Token;
 
-// todo:
-// - petri net resource / component
-// - tokens are components, so they can be attached to entities
-// - state management via petri nets (total game state & entity states)
-// - safe, special cases of petri nets explored
-// - workflow patterns
-// - one petri net reused by multiple tokens (colored)
+mod net;
+mod plugin;
+mod token;
 
 #[cfg(test)]
 mod tests {}
