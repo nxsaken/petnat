@@ -1,4 +1,7 @@
 [![Rust](https://github.com/nxsaken/petnat/actions/workflows/rust.yml/badge.svg)](https://github.com/nxsaken/petnat/actions/workflows/rust.yml)
+[![Crates.io](https://img.shields.io/crates/v/petnat.svg)](https://crates.io/crates/petnat)
+[![Crates.io](https://img.shields.io/crates/d/petnat.svg)](https://crates.io/crates/petnat)
+[![docs.rs](https://img.shields.io/docsrs/petnat)](https://docs.rs/petnat/latest/petnat/)
 
 A Petri net plugin for [Bevy Engine](https://github.com/bevyengine/bevy). 🍾
 
