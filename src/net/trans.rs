@@ -73,10 +73,21 @@ pub trait Arcs<Net: NetId> {
     fn erased() -> Vec<(PlaceId<Net>, usize)>;
 }
 
+// single place case
+impl<Net, P0, const W0: usize> Arcs<Net> for (P0, W<W0>)
+where
+    Net: NetId,
+    P0: Place<Net>,
+{
+    fn erased() -> Vec<(PlaceId<Net>, usize)> {
+        vec![(P0::erased(), W0)]
+    }
+}
+
 macro_rules! impl_arcs {
     ($(($place:ident, $weight:ident)),*) => {
         #[allow(unused_parens)]
-        impl<Net, $($place, const $weight: usize),*> Arcs<Net> for ($(($place, W<$weight>)),*)
+        impl<Net, $($place, const $weight: usize),*> Arcs<Net> for ($(($place, W<$weight>),)*)
         where
             Net: NetId,
             $($place: Place<Net>),*
@@ -90,18 +101,6 @@ macro_rules! impl_arcs {
 
 impl_arcs!();
 impl_arcs!((P0, W0));
-
-// 1-tuple case
-impl<Net, P0, const W0: usize> Arcs<Net> for ((P0, W<W0>),)
-where
-    Net: NetId,
-    P0: Place<Net>,
-{
-    fn erased() -> Vec<(PlaceId<Net>, usize)> {
-        vec![(P0::erased(), W0)]
-    }
-}
-
 impl_arcs!((P0, W0), (P1, W1));
 impl_arcs!((P0, W0), (P1, W1), (P2, W2));
 impl_arcs!((P0, W0), (P1, W1), (P2, W2), (P3, W3));
