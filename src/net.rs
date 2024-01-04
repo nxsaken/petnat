@@ -56,6 +56,7 @@ impl<Net: NetId> PetriNet<Net> {
     }
 
     /// Fires all transitions once.
+    /// todo: prevent firing if transition is involved in non-determinism
     pub fn fire_all(&self, token: &mut Token<Net>) -> Vec<TransId<Net>> {
         self.transitions
             .keys()
