@@ -288,7 +288,7 @@ fn draw_net(mut terms: Query<&mut Terminal>) {
     term.put_string([0, y()], r"   ^\                                       /^   ");
     term.put_string([0, y()], r"   | \                 EAT                 / |   ");
     term.put_string([0, y()], r"   |  v                                   v  |   ");
-    term.put_string([0, y()], r"   |   [ ]--->( )----->[ ]<-----( )<----[ ]   |   ");
+    term.put_string([0, y()], r"   |   [ ]--->( )----->[ ]<-----( )<---[ ]   |   ");
     term.put_string([0, y()], r"   |        taken      / ^      taken        |   ");
     term.put_string([0, y()], r"   |  TAKE            /   \            TAKE  |   ");
     term.put_string([0, y()], r"   |                 v     \                 |   ");
