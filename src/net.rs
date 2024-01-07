@@ -181,9 +181,7 @@ impl<Net: NetId> PetriNet<Net> {
 
 #[cfg(test)]
 mod tests {
-    use super::place::Place;
-    use super::trans::{Trans, W};
-    use super::{NetId, PetriNet};
+    use crate::{NetId, PetriNet, Place, Trans, W};
 
     enum Minimal {}
     enum ProdCons {}

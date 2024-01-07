@@ -56,11 +56,7 @@ impl<Net: NetId> Token<Net> {
 
 #[cfg(test)]
 mod tests {
-    use crate::net::trans::{Trans, W};
-    use crate::net::PetriNet;
-    use crate::Place;
-
-    use super::*;
+    use crate::{NetId, PetriNet, Place, Trans, W};
 
     enum N0 {}
     enum P0 {}

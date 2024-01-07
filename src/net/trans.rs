@@ -1,10 +1,11 @@
 //! Petri net transitions.
 
-use bevy_utils::StableHashMap;
-use educe::Educe;
 use std::any::{type_name, TypeId};
 use std::borrow::Cow;
 use std::marker::PhantomData;
+
+use bevy_utils::StableHashMap;
+use educe::Educe;
 
 use crate::net::place::{Place, PlaceId, PlaceMetadata};
 use crate::net::NetId;
