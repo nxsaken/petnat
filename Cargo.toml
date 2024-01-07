@@ -14,6 +14,7 @@ categories = ["simulation", "game-development", "science"]
 bevy_ecs = { version = "0.12", default-features = false }
 bevy_app = { version = "0.12" }
 bevy_utils = { version = "0.12" }
+educe = { version = "0.5.9", default-features = false, features = ["Debug", "Clone", "Copy", "PartialEq", "Eq", "PartialOrd", "Ord", "Hash", "Default"] }
 
 [dev-dependencies]
 bevy = { version = "0.12" }

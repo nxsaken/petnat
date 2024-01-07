@@ -12,9 +12,8 @@ fn main() {
         //        >-> |T0| -> (P2)
         // (P1) -/ 2
         .add_plugins(PetriNetPlugin::<Nn<0>> {
-            build: |builder| {
-                builder
-                    .add_place::<Pn<0>>()
+            build: |net| {
+                net.add_place::<Pn<0>>()
                     .add_place::<Pn<1>>()
                     .add_place::<Pn<2>>()
                     // T0 requires 1 token in P0 and 2 tokens in P1 to be enabled
@@ -58,7 +57,7 @@ fn mark<Net: NetId, P: Place<Net>>(net: Res<PetriNet<Net>>, mut tokens: Query<&m
 fn trans_t0<Net: NetId>(net: Res<PetriNet<Net>>, mut tokens: Query<&mut Token<Net>>) {
     for mut token in &mut tokens {
         // TODO: better handling of change detection
-        if let Some(()) = net.fire::<Tn<0>>(token.bypass_change_detection()) {
+        if let Ok(()) = net.fire::<Tn<0>>(token.bypass_change_detection()) {
             info!("T0 fired!");
             token.set_changed();
         } else {
@@ -73,10 +72,10 @@ fn print_net<Net: NetId>(
 ) {
     for (id, token) in &tokens {
         info!("== TOKEN {:?} STATE ==", id);
-        info!("P0: {}", token.marks::<Pn<0>>());
-        info!("P1: {}", token.marks::<Pn<1>>());
+        info!("P0: {}", net.marks::<Pn<0>>(token));
+        info!("P1: {}", net.marks::<Pn<1>>(token));
         info!("T0 enabled: {}", net.enabled::<Tn<0>>(token));
-        info!("P2: {}", token.marks::<Pn<2>>());
+        info!("P2: {}", net.marks::<Pn<2>>(token));
         info!("=====================");
     }
 }

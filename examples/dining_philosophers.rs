@@ -5,7 +5,7 @@ use bevy_ascii_terminal::{
     AutoCamera, Border, Terminal, TerminalBundle, TerminalPlugin, TileFormatter,
 };
 
-use petnat::{NetId, PetriNet, PetriNetBuilder, PetriNetPlugin, Place, Token, Trans, W};
+use petnat::{NetId, PetriNet, PetriNetPlugin, Place, Token, Trans, W};
 
 enum DiningPhils {}
 
@@ -33,11 +33,8 @@ impl<const LR: bool, const N: usize> Trans<DiningPhils> for Return<LR, N> {}
 impl<const N: usize> Trans<DiningPhils> for Eat<N> {}
 impl<const N: usize> Trans<DiningPhils> for Finish<N> {}
 
-fn add_philosopher<const N: usize>(
-    builder: PetriNetBuilder<DiningPhils>,
-) -> PetriNetBuilder<DiningPhils> {
-    builder
-        .add_place::<ForkTaken<true, N>>()
+fn add_philosopher<const N: usize>(net: PetriNet<DiningPhils>) -> PetriNet<DiningPhils> {
+    net.add_place::<ForkTaken<true, N>>()
         .add_place::<ForkTaken<false, N>>()
         .add_place::<ForkUsed<true, N>>()
         .add_place::<ForkUsed<false, N>>()
@@ -73,12 +70,11 @@ fn main() {
         .add_plugins(TerminalPlugin)
         .insert_resource(ClearColor(Color::BLACK))
         .add_plugins(PetriNetPlugin::<DiningPhils> {
-            build: |builder| {
-                let builder = builder
-                    .add_place::<ForkFree<true>>()
-                    .add_place::<ForkFree<false>>();
-                let builder = add_philosopher::<0>(builder);
-                add_philosopher::<1>(builder)
+            build: |net| {
+                net.add_place::<ForkFree<true>>()
+                    .add_place::<ForkFree<false>>()
+                    .compose(add_philosopher::<0>)
+                    .compose(add_philosopher::<1>)
             },
         })
         .add_systems(Startup, spawn_terminal)
@@ -184,7 +180,7 @@ fn take_fork<const LR: bool, const N: usize>(
     mut tokens: Query<&mut Token<DiningPhils>>,
 ) {
     let mut token = tokens.single_mut();
-    if let Some(()) = net.fire::<Take<LR, N>>(token.bypass_change_detection()) {
+    if let Ok(()) = net.fire::<Take<LR, N>>(token.bypass_change_detection()) {
         token.set_changed();
         info!("Philosopher {N} took the {} fork.", side::<LR>());
     } else {
@@ -197,7 +193,7 @@ fn return_fork<const LR: bool, const N: usize>(
     mut tokens: Query<&mut Token<DiningPhils>>,
 ) {
     let mut token = tokens.single_mut();
-    if let Some(()) = net.fire::<Return<LR, N>>(token.bypass_change_detection()) {
+    if let Ok(()) = net.fire::<Return<LR, N>>(token.bypass_change_detection()) {
         token.set_changed();
         info!("Philosopher {N} returned the {} fork.", side::<LR>());
     } else {
@@ -210,10 +206,10 @@ fn eat<const N: usize>(
     mut tokens: Query<&mut Token<DiningPhils>>,
 ) {
     let mut token = tokens.single_mut();
-    if let Some(()) = net.fire::<Eat<N>>(token.bypass_change_detection()) {
+    if let Ok(()) = net.fire::<Eat<N>>(token.bypass_change_detection()) {
         token.set_changed();
         info!("Philosopher {N} started eating.");
-    } else if token.marks::<Eating<N>>() > 0 {
+    } else if net.marks::<Eating<N>>(&token) > 0 {
         warn!("Philosopher {N} is already eating.");
     } else {
         warn!("Philosopher {N} cannot eat without both forks.");
@@ -225,7 +221,7 @@ fn finish<const N: usize>(
     mut tokens: Query<&mut Token<DiningPhils>>,
 ) {
     let mut token = tokens.single_mut();
-    if let Some(()) = net.fire::<Finish<N>>(token.bypass_change_detection()) {
+    if let Ok(()) = net.fire::<Finish<N>>(token.bypass_change_detection()) {
         token.set_changed();
         info!("Philosopher {N} finished eating.");
     } else {
@@ -302,6 +298,7 @@ fn draw_net(mut terms: Query<&mut Terminal>) {
 }
 
 fn show_free_fork<const LR: bool>(
+    net: Res<PetriNet<DiningPhils>>,
     tokens: Query<&Token<DiningPhils>, Changed<Token<DiningPhils>>>,
     mut terms: Query<&mut Terminal>,
 ) {
@@ -312,7 +309,7 @@ fn show_free_fork<const LR: bool>(
         [TERM_SIZE[0] - 5, TERM_SIZE[1] - 20 - 15]
     };
     if let Ok(token) = tokens.get_single() {
-        if token.marks::<ForkFree<LR>>() > 0 {
+        if net.marks::<ForkFree<LR>>(token) > 0 {
             info!("{} fork: on the table", side::<LR>());
             term.put_char(coord, '*'.fg(Color::WHITE));
         } else {
@@ -339,13 +336,13 @@ fn show_taken_fork<const LR: bool, const N: usize>(
         _ => unreachable!(),
     };
     if let Ok(token) = tokens.get_single() {
-        if token.marks::<ForkTaken<LR, N>>() > 0 {
+        if net.marks::<ForkTaken<LR, N>>(token) > 0 {
             info!("{} fork: taken by Philosopher {N}", side::<LR>());
             term.put_char([x, y_taken], '*'.fg(Color::WHITE));
         } else {
             term.clear_box([x, y_taken], [1, 1]);
         }
-        if token.marks::<ForkUsed<LR, N>>() > 0 {
+        if net.marks::<ForkUsed<LR, N>>(token) > 0 {
             info!("{} fork: used by Philosopher {N}", side::<LR>());
             term.put_char([x, y_used], '*'.fg(Color::WHITE));
         } else {
@@ -379,13 +376,13 @@ fn show_philosopher<const N: usize>(
         _ => unreachable!(),
     };
     if let Ok(token) = tokens.get_single() {
-        if token.marks::<Eating<N>>() > 0 {
+        if net.marks::<Eating<N>>(token) > 0 {
             info!("Philosopher {N}: eating");
             term.put_char([x_eating, y], '*'.fg(Color::WHITE));
         } else {
             term.clear_box([x_eating, y], [1, 1]);
         }
-        if token.marks::<Thinking<N>>() > 0 {
+        if net.marks::<Thinking<N>>(token) > 0 {
             info!("Philosopher {N}: thinking");
             term.put_char([x_thinking, y], '*'.fg(Color::WHITE));
         } else {

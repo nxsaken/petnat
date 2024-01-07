@@ -1,67 +1,55 @@
 //! Petri net token.
 
-use std::cmp::Ordering;
-use std::collections::HashMap;
 use std::marker::PhantomData;
 
 use bevy_ecs::component::Component;
 
-use crate::net::place::{Place, PlaceId};
-use crate::net::NetId;
+use crate::net::place::PlaceId;
+use crate::net::{NetId, NotEnoughMarks};
 
 /// Petri net token. Holds the state of the net execution.
 ///
-/// TODO: WorldQuery for querying tokens with a specific marking
+// TODO: WorldQuery for querying tokens with a specific marking
 #[derive(Component, Clone, Eq, PartialEq, Debug)]
 pub struct Token<Net: NetId> {
-    marking: HashMap<PlaceId<Net>, usize>,
+    marking: Vec<usize>,
     _net: PhantomData<Net>,
 }
 
 impl<Net: NetId> Token<Net> {
     /// Returns a new token.
-    pub(crate) fn new() -> Self {
+    pub(crate) fn new(num_places: usize) -> Self {
         Self {
-            marking: HashMap::new(),
+            marking: vec![0; num_places],
             _net: PhantomData,
         }
     }
 
-    /// Returns the number of times a token has marked a place.
-    pub fn marks<P: Place<Net>>(&self) -> usize {
-        self.marks_by_id(P::erased())
-    }
-
-    /// Returns the total number of markings of the token.
+    /// Returns the total number of markings by a token.
+    #[inline]
+    #[must_use]
     pub fn total_marks(&self) -> usize {
-        self.marking.values().sum()
+        self.marking.iter().sum()
     }
 
     pub(crate) fn marks_by_id(&self, place: PlaceId<Net>) -> usize {
-        self.marking.get(&place).copied().unwrap_or(0)
+        self.marking[place.index()]
     }
 
     pub(crate) fn mark_by_id(&mut self, place: PlaceId<Net>, n: usize) {
-        self.marking
-            .entry(place)
-            .and_modify(|m| *m += n)
-            .or_insert(n);
+        self.marking[place.index()] += n;
     }
 
-    pub(crate) fn unmark_by_id(&mut self, place: PlaceId<Net>, n: usize) -> Option<()> {
-        let Some(marking) = self.marking.get_mut(&place) else {
-            return None;
-        };
-        match <usize>::cmp(marking, &n) {
-            Ordering::Less => None,
-            Ordering::Equal => {
-                self.marking.remove(&place);
-                Some(())
-            }
-            Ordering::Greater => {
-                *marking -= n;
-                Some(())
-            }
+    pub(crate) fn unmark_by_id(
+        &mut self,
+        place: PlaceId<Net>,
+        n: usize,
+    ) -> Result<(), NotEnoughMarks<Net>> {
+        if self.marking[place.index()] >= n {
+            self.marking[place.index()] -= n;
+            Ok(())
+        } else {
+            Err(NotEnoughMarks(place))
         }
     }
 }
@@ -70,6 +58,7 @@ impl<Net: NetId> Token<Net> {
 mod tests {
     use crate::net::trans::{Trans, W};
     use crate::net::PetriNet;
+    use crate::Place;
 
     use super::*;
 
@@ -84,10 +73,9 @@ mod tests {
     const N: usize = 3;
 
     fn net() -> PetriNet<N0> {
-        PetriNet::builder()
+        PetriNet::new()
             .add_place::<P0>()
             .add_trans::<T0, (P0, W<1>), ()>()
-            .build()
     }
 
     #[test]
@@ -101,9 +89,9 @@ mod tests {
     fn test_marking_a_place_adds_to_token() {
         let net = net();
         let mut token = net.spawn_token();
-        let m0 = token.marks::<P0>();
+        let m0 = net.marks::<P0>(&token);
         net.mark::<P0>(&mut token, N);
-        let m1 = token.marks::<P0>();
+        let m1 = net.marks::<P0>(&token);
         assert_eq!(m1, m0 + N);
     }
 
@@ -112,17 +100,17 @@ mod tests {
         let net = net();
         let mut token = net.spawn_token();
         net.mark::<P0>(&mut token, N);
-        let m0 = token.marks::<P0>();
+        let m0 = net.marks::<P0>(&token);
         net.unmark::<P0>(&mut token, N).unwrap();
-        let m1 = token.marks::<P0>();
+        let m1 = net.marks::<P0>(&token);
         assert_eq!(m1, m0 - N);
     }
 
     #[test]
-    fn test_unmarking_more_than_marked_returns_none() {
+    fn test_unmarking_more_than_marked_fails() {
         let net = net();
         let mut token = net.spawn_token();
         net.mark::<P0>(&mut token, N);
-        assert!(net.unmark::<P0>(&mut token, N + 1).is_none());
+        assert!(net.unmark::<P0>(&mut token, N + 1).is_err());
     }
 }
