@@ -7,8 +7,8 @@ use std::marker::PhantomData;
 use bevy_utils::StableHashMap;
 use educe::Educe;
 
-use crate::net::place::{Place, PlaceId, PlaceMetadata};
-use crate::net::NetId;
+use super::place::PlaceId;
+use super::NetId;
 
 /// Transition belonging to a Petri net.
 pub trait Trans<Net: NetId>: Send + Sync + 'static {}
@@ -40,7 +40,7 @@ impl<Net: NetId> TransId<Net> {
     }
 }
 
-/// Transition metadata.
+/// A value describing a [`Trans`], which may or may not be a Rust type.
 #[derive(Educe)]
 #[educe(Debug, Default)]
 pub struct TransMetadata<Net: NetId> {
@@ -50,12 +50,22 @@ pub struct TransMetadata<Net: NetId> {
 }
 
 impl<Net: NetId> TransMetadata<Net> {
-    /// Create a new [`TransInfo`] for the transition `T`.
+    /// Returns a new [`TransMetadata`] for the transition `T`.
     #[must_use]
     pub fn new<T: Trans<Net>>() -> Self {
         Self {
             name: Cow::Borrowed(type_name::<T>()),
             type_id: Some(TypeId::of::<T>()),
+            _net: PhantomData,
+        }
+    }
+
+    /// Returns a new [`TransMetadata`] for an "anonymous" transition (not a Rust type).
+    #[must_use]
+    pub fn new_anon<N: Into<Cow<'static, str>>>(name: N) -> Self {
+        Self {
+            name: name.into(),
+            type_id: None,
             _net: PhantomData,
         }
     }
@@ -71,16 +81,17 @@ impl<Net: NetId> TransMetadata<Net> {
     ///
     /// ## Panics
     ///
-    /// Panics if the transition does not correspond to a Rust type.
+    /// Panics if the transition is not a Rust type.
     #[inline]
     #[must_use]
     pub fn type_id(&self) -> TypeId {
-        self.type_id.expect("type_id present")
+        self.type_id
+            .unwrap_or_else(|| panic!("Transition `{}` is not a Rust type.", self.name))
     }
 
     /// Returns the [`TypeId`] of the transition.
     ///
-    /// Returns `None` if the transition does not correspond to a Rust type.
+    /// Returns `None` if the transition is not a Rust type.
     #[inline]
     #[must_use]
     pub const fn get_type_id(&self) -> Option<TypeId> {
@@ -90,7 +101,7 @@ impl<Net: NetId> TransMetadata<Net> {
 
 #[derive(Educe)]
 #[educe(Debug, Default)]
-pub struct Transitions<Net: NetId> {
+pub(super) struct Transitions<Net: NetId> {
     transitions: Vec<TransMetadata<Net>>,
     indices: StableHashMap<TypeId, TransId<Net>>,
 }
@@ -132,7 +143,7 @@ impl<Net: NetId> Transitions<Net> {
     ///
     /// If this method is called multiple times with identical metadata,
     /// a distinct [`TransId`] will be created for each one.
-    pub fn _register_with_info(&mut self, meta: TransMetadata<Net>) -> TransId<Net> {
+    pub fn register_with_meta(&mut self, meta: TransMetadata<Net>) -> TransId<Net> {
         Self::init_inner(&mut self.transitions, meta)
     }
 
@@ -146,21 +157,9 @@ impl<Net: NetId> Transitions<Net> {
         index
     }
 
-    /// Returns the number of transitions registered with the Petri net.
-    #[inline]
-    pub fn _len(&self) -> usize {
-        self.transitions.len()
-    }
-
-    /// Returns `true` iff there are no transitions registered with the Petri net.
-    #[inline]
-    pub fn _is_empty(&self) -> bool {
-        self.transitions.is_empty()
-    }
-
     /// Returns the metadata associated with the given transition.
     #[inline]
-    pub fn _metadata(&self, id: TransId<Net>) -> &TransMetadata<Net> {
+    pub fn metadata(&self, id: TransId<Net>) -> &TransMetadata<Net> {
         self.transitions.get(id.index()).unwrap_or_else(|| {
             panic!(
                 "Transition `{:?}` not found in net `{}`. Make sure you register it first.",
@@ -168,12 +167,6 @@ impl<Net: NetId> Transitions<Net> {
                 type_name::<Net>()
             )
         })
-    }
-
-    /// Returns the name associated with the given transition.
-    #[inline]
-    pub fn _name(&self, id: TransId<Net>) -> &str {
-        self._metadata(id).name()
     }
 
     /// Returns the [`TransId`] associated with the `type_id`.
@@ -262,47 +255,6 @@ impl<Net: NetId> Flows<Net> {
         &self.outflows[trans.index()]
     }
 }
-
-/// Arc weight.
-pub enum W<const N: usize> {}
-
-/// Weighted place-transition arcs.
-pub trait Arcs<Net: NetId> {
-    /// Returns a vector of erased arcs.
-    fn erased() -> Vec<(PlaceMetadata<Net>, usize)>;
-}
-
-// single place case
-impl<Net, P0, const W0: usize> Arcs<Net> for (P0, W<W0>)
-where
-    Net: NetId,
-    P0: Place<Net>,
-{
-    fn erased() -> Vec<(PlaceMetadata<Net>, usize)> {
-        vec![(PlaceMetadata::new::<P0>(), W0)]
-    }
-}
-
-macro_rules! impl_arcs {
-    ($(($place:ident, $weight:ident)),*) => {
-        #[allow(unused_parens)]
-        impl<Net, $($place, const $weight: usize),*> Arcs<Net> for ($(($place, W<$weight>),)*)
-        where
-            Net: NetId,
-            $($place: Place<Net>),*
-        {
-            fn erased() -> Vec<(PlaceMetadata<Net>, usize)> {
-                vec![$((PlaceMetadata::new::<$place>(), $weight)),*]
-            }
-        }
-    };
-}
-
-impl_arcs!();
-impl_arcs!((P0, W0));
-impl_arcs!((P0, W0), (P1, W1));
-impl_arcs!((P0, W0), (P1, W1), (P2, W2));
-impl_arcs!((P0, W0), (P1, W1), (P2, W2), (P3, W3));
 
 #[cfg(test)]
 mod tests {}

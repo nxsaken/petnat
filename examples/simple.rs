@@ -47,7 +47,10 @@ fn mark<Net: NetId, P: Place<Net>>(net: Res<PetriNet<Net>>, mut tokens: Query<&m
     for mut token in &mut tokens {
         net.mark::<P>(&mut token, 1);
         // TODO: better place/trans names
-        let (_, name) = type_name::<P>()
+        let (_, name) = net
+            .place::<P>()
+            .1
+            .name()
             .rsplit_once(':')
             .unwrap_or(("", type_name::<P>()));
         info!("{} marked!", name);

@@ -5,14 +5,13 @@
 #![allow(clippy::module_name_repetitions)]
 
 pub use crate::net::place::{Place, PlaceId, PlaceMetadata, Pn};
-pub use crate::net::trans::{Arcs, Tn, Trans, TransId, TransMetadata, W};
-pub use crate::net::{NetId, Nn, PetriNet};
+pub use crate::net::trans::{Tn, Trans, TransId, TransMetadata};
+pub use crate::net::{Arcs, NetId, Nn, PetriNet, W};
 pub use crate::plugin::PetriNetPlugin;
-pub use crate::token::Token;
+pub use net::token::Token;
 
 mod net;
 mod plugin;
-mod token;
 
 #[cfg(test)]
 mod tests {}

@@ -3,14 +3,16 @@
 use std::marker::PhantomData;
 
 use bevy_ecs::component::Component;
+use educe::Educe;
 
-use crate::net::place::PlaceId;
-use crate::net::{NetId, NotEnoughMarks};
+use super::place::PlaceId;
+use super::{NetId, NotEnoughMarks};
 
 /// Petri net token. Holds the state of the net execution.
 ///
 // TODO: WorldQuery for querying tokens with a specific marking
-#[derive(Component, Clone, Eq, PartialEq, Debug)]
+#[derive(Component, Educe)]
+#[educe(Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Debug)]
 pub struct Token<Net: NetId> {
     marking: Vec<usize>,
     _net: PhantomData<Net>,
@@ -18,7 +20,7 @@ pub struct Token<Net: NetId> {
 
 impl<Net: NetId> Token<Net> {
     /// Returns a new token.
-    pub(crate) fn new(num_places: usize) -> Self {
+    pub(super) fn new(num_places: usize) -> Self {
         Self {
             marking: vec![0; num_places],
             _net: PhantomData,
@@ -32,15 +34,15 @@ impl<Net: NetId> Token<Net> {
         self.marking.iter().sum()
     }
 
-    pub(crate) fn marks_by_id(&self, place: PlaceId<Net>) -> usize {
+    pub(super) fn marks_by_id(&self, place: PlaceId<Net>) -> usize {
         self.marking[place.index()]
     }
 
-    pub(crate) fn mark_by_id(&mut self, place: PlaceId<Net>, n: usize) {
+    pub(super) fn mark_by_id(&mut self, place: PlaceId<Net>, n: usize) {
         self.marking[place.index()] += n;
     }
 
-    pub(crate) fn unmark_by_id(
+    pub(super) fn unmark_by_id(
         &mut self,
         place: PlaceId<Net>,
         n: usize,

@@ -7,7 +7,7 @@ use std::marker::PhantomData;
 use bevy_utils::StableHashMap;
 use educe::Educe;
 
-use crate::net::NetId;
+use super::NetId;
 
 /// Place belonging to a Petri net.
 ///
@@ -44,7 +44,7 @@ impl<Net: NetId> PlaceId<Net> {
     }
 }
 
-/// A value describing a [`Place`], which may or may not correspond to a Rust type.
+/// A value describing a [`Place`], which may or may not be a Rust type.
 #[derive(Educe)]
 #[educe(Clone, Debug, Default)]
 pub struct PlaceMetadata<Net: NetId> {
@@ -54,12 +54,22 @@ pub struct PlaceMetadata<Net: NetId> {
 }
 
 impl<Net: NetId> PlaceMetadata<Net> {
-    /// Create a new [`PlaceMetadata`] for the place `P`.
+    /// Returns a new [`PlaceMetadata`] for the place `P`.
     #[must_use]
     pub fn new<P: Place<Net>>() -> Self {
         Self {
             name: Cow::Borrowed(type_name::<P>()),
             type_id: Some(TypeId::of::<P>()),
+            _net: PhantomData,
+        }
+    }
+
+    /// Returns a new [`PlaceMetadata`] for an "anonymous" place (not a Rust type).
+    #[must_use]
+    pub fn new_anon<N: Into<Cow<'static, str>>>(name: N) -> Self {
+        Self {
+            name: name.into(),
+            type_id: None,
             _net: PhantomData,
         }
     }
@@ -75,16 +85,17 @@ impl<Net: NetId> PlaceMetadata<Net> {
     ///
     /// ## Panics
     ///
-    /// Panics if the place does not correspond to a Rust type.
+    /// Panics if the place is not a Rust type.
     #[inline]
     #[must_use]
     pub fn type_id(&self) -> TypeId {
-        self.type_id.expect("type_id present")
+        self.type_id
+            .unwrap_or_else(|| panic!("Place `{}` is not a Rust type.", self.name))
     }
 
     /// Returns the [`TypeId`] of the place.
     ///
-    /// Returns `None` if the place does not correspond to a Rust type.
+    /// Returns `None` if the place is not a Rust type.
     #[inline]
     #[must_use]
     pub const fn get_type_id(&self) -> Option<TypeId> {
@@ -94,7 +105,7 @@ impl<Net: NetId> PlaceMetadata<Net> {
 
 #[derive(Educe)]
 #[educe(Debug, Default)]
-pub struct Places<Net: NetId> {
+pub(super) struct Places<Net: NetId> {
     places: Vec<PlaceMetadata<Net>>,
     indices: StableHashMap<TypeId, PlaceId<Net>>,
 }
@@ -128,7 +139,7 @@ impl<Net: NetId> Places<Net> {
     ///
     /// If this method is called multiple times with identical metadata,
     /// a distinct [`PlaceId`] will be created for each one.
-    pub fn _register_with_info(&mut self, meta: PlaceMetadata<Net>) -> PlaceId<Net> {
+    pub fn register_with_meta(&mut self, meta: PlaceMetadata<Net>) -> PlaceId<Net> {
         Self::init_inner(&mut self.places, meta)
     }
 
@@ -145,25 +156,10 @@ impl<Net: NetId> Places<Net> {
         self.places.len()
     }
 
-    /// Returns `true` if there are no places registered with this instance. Otherwise, this returns `false`.
-    #[inline]
-    pub fn _is_empty(&self) -> bool {
-        self.places.is_empty()
-    }
-
     /// Gets the metadata associated with the given place.
     #[inline]
-    pub fn _metadata(&self, id: PlaceId<Net>) -> &PlaceMetadata<Net> {
+    pub fn metadata(&self, id: PlaceId<Net>) -> &PlaceMetadata<Net> {
         &self.places[id.index()]
-    }
-
-    /// Returns the name associated with the given place.
-    ///
-    /// This will return an incorrect result if `id` did not come from the same Petri net as `self`.
-    /// It may return `None` or a garbage value.
-    #[inline]
-    pub fn _name(&self, id: PlaceId<Net>) -> &str {
-        self._metadata(id).name()
     }
 
     /// Returns the [`PlaceId`] associated with the given `type_id`.
